@@ -1,109 +1,98 @@
 #!/usr/bin/env python
 #
-# Labo 2 from VTK.
+# Labo 2 - Partie 1
+# Le but de ce fichier est de convertir le fichier altitudes.txt en un fichier vtkStructuredGrid.
 #
-# Goal: Achieve to reproduce a topographic map from a part of switzerland
-#
-# Authors: Forestier Quentin & Herzig Melvyn
-#
-# Date: 03.05.2022
+# Auteurs: Mélissa Gehring et Tania Nunez
 
 import vtk
+from skimage import measure, morphology
 import math
 import numpy as np
-from skimage import measure, morphology
 
-# --------- constants ---------
+# Nom des fichiers contenant les altitudes
+INPUT_FILE = "data/altitudes.txt"
+OUTPUT_FILE = "data/altitudes.vtk"
 
-FILENAME = "data/altitudes.txt"
+# Rayon de la terre
+EARTH_RADIUS = 6371009
 
-EARTH_RADIUS = 6_371_009
+# Niveau de l'eau
+WATER_LEVEL = 0
 
-CAMERA_DISTANCE = 500_000
-
-# North latitude
+# Latitudes et longitudes de la zone à afficher
 LAT_MIN = 45
 LAT_MAX = 47.5
-
-# East longitude
 LON_MIN = 5
 LON_MAX = 7.5
 
-# Sea level
-SEA_LEVEL = 0
+# Nous avons choisi de représenter les données sous forme de vtkStructuredGrid, 
+# qui utilise des vtkPoints pour être placé
+points = vtk.vtkPoints()
 
+# Chaque point a un attribut altitude qui va ensuite déterminer sa couleur sur la carte
+# Nous avons choisi un vtkIntArray car dans le fichier altitudes.txt, les altitudes sont des entiers
+altitudes_color = vtk.vtkIntArray()
 
-# Spherical to cartesian
-def to_cartesian(radius: float, latitude: float, longitude: float):
-    """
-    Translate spherical coordinate to cartesian coordinate
-    inclination and azimuth must be in radian
-    https://en.wikipedia.org/wiki/Spherical_coordinate_system
-    """
+# Fonction qui convertit les coordonnées sphériques en coordonnées cartésiennes
+def spherical_to_cartesian(radius: float, latitude: float, longitude: float):
     x = radius * math.sin(latitude) * math.sin(longitude)
     y = radius * math.cos(latitude)
     z = radius * math.sin(latitude) * math.cos(longitude)
     return x, y, z
 
+# Pour chaque ligne du fichier altitudes.txt
+with open(INPUT_FILE) as file:
+    # On récupère le nombre de lignes et de colonnes
+    rows, cols = [int(x) for x in next(file).strip().split(" ")]
 
-# StructuredGrid use vtkPoints to be placed in the scene.
-points = vtk.vtkPoints()
+    # On calcule l'intervalle à utiliser entre chaque point
+    diff_lat = (LAT_MAX - LAT_MIN) / (rows - 1)
+    diff_lon = (LON_MAX - LON_MIN) / (cols - 1)
 
-# Will store the attributes of the above points to define which color to use.
-altitudes = vtk.vtkIntArray()
+    # On récupère les altitudes dans un tableau numpy
+    altitudes_raw = np.array([[int(x) for x in line.strip().split(" ")] for line in file])
 
-# First line contain size of grid
-# Then it contains a grid of elevations.
-with open(FILENAME) as file:
-    rows, cols = map(int, file.readline().strip().split(" "))
 
-    interval_azimuth = (LAT_MAX - LAT_MIN) / (rows - 1)
-    interval_inclination = (LON_MAX - LON_MIN) / (cols - 1)
-
-    elevations = np.array([[int(x) for x in line.strip().split(" ")] for line in file])
-
-# For each point, we transform the spherical coordinate into cartesian coordinates in order to place them in the world
-for i, elevs in enumerate(elevations):
-    for j, elev in enumerate(elevs):
-        (x, y, z) = to_cartesian(elev + EARTH_RADIUS,
-                                 math.radians(LAT_MIN + i * interval_azimuth),
-                                 math.radians(LON_MIN + j * interval_inclination))
-
-        points.InsertNextPoint(x, y, z)
-
-# Here we detect water surfaces.
-labels = measure.label(elevations, connectivity=1)  # connectivity=1 -> to compare only adjacent cells.
-# Then, we remove regions where area is too small.
-lakes = morphology.remove_small_objects(labels, 512) > 0
-# Use an arbitrary value to represent water
-elevations[lakes] = 0
-
-# For each point, we set his attribute (altitude) that will define his color. The altitude attribute is not necessary of
-# the real world altitude. To color water we have defined that the altitude attribute should be 0. For example, for the
-# points of the lakes, their attributes are set to 0 but their real altitude is not 0.
-#
-# Note: Here we make a second pass on each point. Another way to achieve this in one pass would have required to use
-# a copy of the altitudes array. Without the copy or without the second pass, the lake points on the scene would have
-# use the 0 altitude to determine their cartesian coordinates.
+# Pour chaque altitute dans le tableau numpy, on convertit les coordonnées sphériques en coordonnées cartésiennes
 for i in range(0, rows):
     for j in range(0, cols):
-        if elevations[i, j] < SEA_LEVEL:
-            altitudes.InsertNextValue(0)
-        else:
-            altitudes.InsertNextValue(elevations[i, j])
+        # On récupère l'altitude
+        altitude = altitudes_raw[i, j]
 
-# Create grid
-# We had the choice between multiple data structures:
-# - Image data (Not adapted because our point are not fully aligned)
-# - Rectilinear grid (Not adapted for altitude)
-# - Structured grid (Perfect for storing array of coordinates)
-grid = vtk.vtkStructuredGrid()
-grid.SetDimensions(rows, cols, 1)
-grid.SetPoints(points)
-grid.GetPointData().SetScalars(altitudes)
+        # On calcule la latitude et la longitude
+        latitude = math.radians(LAT_MIN + i * diff_lat)
+        longitude = math.radians(LON_MIN + j * diff_lon)
 
-# Write the transformed grid to a vtkStructuredGrid file
+        # On convertit les coordonnées sphériques en coordonnées cartésiennes
+        x, y, z = spherical_to_cartesian(EARTH_RADIUS + altitude, latitude, longitude)
+
+        # On ajoute le point aux vtkPoints ^
+        points.InsertNextPoint(x, y, z)
+
+# Après avoir ajouté les points, on peut détecter les lacs grâce à la librairie skimage
+# On détecte les surfaces d'eau
+water_surfaces = measure.label(altitudes_raw, connectivity=1)
+# On enlève les régions trop petites
+water_surfaces = morphology.remove_small_objects(water_surfaces, 512) > 0
+# On applique les surfaces trouvées sur le tableau d'altitudes, en mettant les valeurs à 0
+altitudes_raw[water_surfaces] = 0
+altitudes_raw[altitudes_raw < WATER_LEVEL] = 0
+
+# On ajoute les altitudes au vtkIntArray qui va déterminer la couleur des points
+for i in range(0, rows):
+    for j in range(0, cols):
+            altitudes_color.InsertNextValue(altitudes_raw[i, j])
+
+# Comme mentionné plus haut, nous avons choisi de représenter les données sous forme de vtkStructuredGrid
+# Car c'est la structure qui est la plus adaptée pour stocker des tableaux de coordonnées et d'altitudes
+structuredGrid = vtk.vtkStructuredGrid()
+structuredGrid.SetDimensions(rows, cols, 1)
+structuredGrid.SetPoints(points) # points contient les coordonnées
+structuredGrid.GetPointData().SetScalars(altitudes_color) # altitudes_color contient les altitudes
+
+# On écrit le vtkStructuredGrid dans un fichier vtk
 writer = vtk.vtkStructuredGridWriter()
-writer.SetFileName("structuredGrid.vtk")
-writer.SetInputData(grid)
+writer.SetFileName(OUTPUT_FILE)
+writer.SetInputData(structuredGrid)
 writer.Write()

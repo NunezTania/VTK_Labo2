@@ -1,32 +1,31 @@
 #!/usr/bin/env python
 #
-# Labo 2 from VTK.
+# Labo 2 - Partie 2
+# Le but de ce fichier est d'utiliser le fichier altitudes.vtk pour le visualiser.
 #
-# Goal: Achieve to reproduce a topographic map from a part of switzerland
-#
-# Authors: Forestier Quentin & Herzig Melvyn
-#
-# Date: 03.05.2022
+# Auteurs: Mélissa Gehring et Tania Nunez
+
 
 import vtk
 import math
-import numpy as np
-from skimage import measure, morphology# --------- constants ---------
 
-EARTH_RADIUS = 6_371_009
+# Nom du fichier contenant le vtkStructuredGrid
+INPUT_FILE = "data/altitudes.vtk"
 
-CAMERA_DISTANCE = 500_000
+# Rayon de la terre
+EARTH_RADIUS = 6371009
 
-# North latitude
+# Niveau de l'eau
+WATER_LEVEL = 0
+
+# Latitudes et longitudes de la zone à afficher
 LAT_MIN = 45
 LAT_MAX = 47.5
-
-# East longitude
 LON_MIN = 5
 LON_MAX = 7.5
 
-# Sea level
-SEA_LEVEL = 0
+# Distance de la caméra par rapport au centre de la zone
+CAMERA_DISTANCE = 500000
 
 
 # Spherical to cartesian
@@ -43,7 +42,7 @@ def to_cartesian(radius: float, latitude: float, longitude: float):
 
 # Lecture du fichier .vtk contenant le vtkStructuredGrid
 reader = vtk.vtkStructuredGridReader()
-reader.SetFileName("structuredGrid.vtk")
+reader.SetFileName(INPUT_FILE)
 reader.Update()
 
 # Obtention du vtkStructuredGrid
@@ -94,7 +93,7 @@ renWin.Render()
 w2if = vtk.vtkWindowToImageFilter()
 w2if.SetInput(renWin)
 w2if.Update()
-filename = "Map_Screenshot_Sea_Level_" + str(SEA_LEVEL) + ".png"
+filename = "Map_Screenshot_Sea_Level_" + str(WATER_LEVEL) + ".png"
 writer = vtk.vtkPNGWriter()
 writer.SetFileName(filename)
 writer.SetInputData(w2if.GetOutput())
